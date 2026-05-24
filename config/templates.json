@@ -1,0 +1,38 @@
+{
+  "templates": {
+    "simple": {
+      "name": "Simple Event Link",
+      "dm_message": "Hey! 👋\n\nHere is the registration link:\n{{event_link}}\n\nSee you there 🚀",
+      "public_reply": "Check your DMs 📩"
+    },
+    "ngo": {
+      "name": "NGO / Volunteer Style",
+      "dm_message": "Thanks for your interest 💙\n\nApplications are open here:\n{{event_link}}\n\nFeel free to message us if you have questions.",
+      "public_reply": "Sent 📩"
+    },
+    "urgency": {
+      "name": "Urgency / Limited Spots",
+      "dm_message": "Spots are limited ⚡\n\nRegister here:\n{{event_link}}",
+      "public_reply": "Check DMs ✉️"
+    },
+    "community": {
+      "name": "Community Invite",
+      "dm_message": "Welcome! 🎉\n\nJoin the community here:\n{{event_link}}\n\nCan't wait to see you inside!",
+      "public_reply": "Invite sent! 🎊"
+    },
+    "multi_link": {
+      "name": "Multiple Events",
+      "dm_message": "Hey 👋\n\nHere are our upcoming opportunities:\n\n🎤 {{event_name}}:\n{{event_link}}\n\nMessage us if you have any questions!",
+      "public_reply": "Links sent 📩"
+    },
+    "erasmus": {
+      "name": "Erasmus / Youth Exchange",
+      "dm_message": "Hey! 👋\n\nHere is the application form for {{event_name}}:\n{{event_link}}\n\nDeadline is approaching — apply now! 🌍",
+      "public_reply": "Application link sent ✉️"
+    }
+  },
+  "variables": {
+    "{{event_name}}": "The event_name field from the matched rule",
+    "{{event_link}}": "The event_link field from the matched rule"
+  }
+}

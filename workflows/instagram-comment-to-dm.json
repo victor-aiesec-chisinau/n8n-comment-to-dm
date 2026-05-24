@@ -1,0 +1,410 @@
+{
+  "name": "📣 Instagram Comment → Auto DM",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "instagram",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11111111-0001-0001-0001-000000000001",
+      "name": "Meta Webhook Verify (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [180, 160],
+      "webhookId": "instagram-verify-get"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Meta sends: GET ?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=RANDOM\n// We must respond with the hub.challenge value\n\nconst query = $input.first().json.query || {};\nconst verifyToken = process.env.META_VERIFY_TOKEN || 'your_verify_token_here';\n\nif (query['hub.mode'] === 'subscribe' && query['hub.verify_token'] === verifyToken) {\n  return [{ json: { challenge: query['hub.challenge'], verified: true } }];\n}\n\n// Invalid token — return empty challenge (n8n will still respond 200, just with no body)\nreturn [{ json: { challenge: '', verified: false, error: 'Invalid verify_token' } }];"
+      },
+      "id": "11111111-0001-0001-0001-000000000002",
+      "name": "Extract Challenge",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 160]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "11111111-0001-0001-0001-000000000003",
+      "name": "Respond with Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [620, 160]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "instagram",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11111111-0001-0001-0001-000000000004",
+      "name": "Instagram Comment Events (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [180, 400],
+      "webhookId": "instagram-events-post"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\" }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "11111111-0001-0001-0001-000000000005",
+      "name": "Respond 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [400, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Meta webhook payload for Instagram comment events\n// Handles multiple changes per entry (batch delivery)\n\nconst body = $input.first().json.body || {};\n\nif (!body.entry || !body.entry.length) {\n  return [{ json: { valid: false, reason: 'no_entry' } }];\n}\n\nconst results = [];\n\nfor (const entry of body.entry) {\n  for (const change of (entry.changes || [])) {\n\n    // We only care about 'comments' field\n    if (change.field !== 'comments') continue;\n\n    const val = change.value || {};\n\n    // Skip deletions / edits — only process new comments\n    if (val.verb && val.verb !== 'add') continue;\n\n    // Skip replies to other comments (only process top-level comments)\n    // Remove this check if you also want to trigger on replies\n    if (val.parent_id) continue;\n\n    results.push({\n      json: {\n        valid: true,\n        platform: 'instagram',\n        commentId: val.id || val.comment_id,\n        commentText: (val.text || val.message || '').trim(),\n        userId: (val.from && val.from.id) ? val.from.id : null,\n        userName: (val.from && val.from.name) ? val.from.name : 'Unknown',\n        postId: (val.media && val.media.id) ? val.media.id : (val.post_id || null),\n        timestamp: val.created_time || Math.floor(Date.now() / 1000)\n      }\n    });\n  }\n}\n\nif (results.length === 0) {\n  return [{ json: { valid: false, reason: 'no_comment_events' } }];\n}\n\nreturn results;"
+      },
+      "id": "11111111-0001-0001-0001-000000000006",
+      "name": "Parse Comment Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-has-user",
+              "leftValue": "={{ $json.userId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "11111111-0001-0001-0001-000000000007",
+      "name": "Valid Comment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [840, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Match comment text against keyword rules from environment variable\n// Set KEYWORD_RULES env var in n8n Settings → Environment Variables\n// Value: the JSON array from config/rules.example.json\n\nconst input = $input.first().json;\nconst commentText = (input.commentText || '').toLowerCase().trim();\nconst platform = input.platform;\n\n// Load rules from environment variable\nlet rules = [];\ntry {\n  const raw = process.env.KEYWORD_RULES || '[]';\n  rules = JSON.parse(raw);\n} catch (e) {\n  console.error('[keyword-matcher] Failed to parse KEYWORD_RULES env var:', e.message);\n  return [{ json: { ...input, hasMatch: false, error: 'rules_parse_error' } }];\n}\n\n// Filter: active rules for this platform\nconst now = new Date();\nconst staticData = $getWorkflowStaticData('global');\nconst sendCounts = staticData.sendCounts || {};\n\nconst activeRules = rules.filter(rule => {\n  if (!rule.active) return false;\n  if (rule.platform !== platform) return false;\n  if (rule.expires_at && new Date(rule.expires_at) < now) return false;\n  if (rule.max_dm_sends != null && (sendCounts[rule.id] || 0) >= rule.max_dm_sends) return false;\n  return true;\n});\n\n// Try to match — first match wins\nlet matchedRule = null;\nfor (const rule of activeRules) {\n  const keyword = (rule.keyword || '').toLowerCase().trim();\n  const matchType = rule.match_type || 'contains';\n\n  let isMatch = false;\n  switch (matchType) {\n    case 'exact':\n      isMatch = commentText === keyword;\n      break;\n    case 'starts_with':\n      isMatch = commentText.startsWith(keyword);\n      break;\n    case 'word':\n      // Full word match (not substring of another word)\n      isMatch = new RegExp('\\\\b' + keyword.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\\\b').test(commentText);\n      break;\n    default: // 'contains'\n      isMatch = commentText.includes(keyword);\n  }\n\n  if (isMatch) {\n    matchedRule = rule;\n    break;\n  }\n}\n\nif (!matchedRule) {\n  return [{ json: { ...input, hasMatch: false } }];\n}\n\n// Build the DM message from the template\nlet dmMessage = matchedRule.dm_message || '';\ndmMessage = dmMessage.replace(/\\{\\{event_link\\}\\}/g, matchedRule.event_link || '');\ndmMessage = dmMessage.replace(/\\{\\{event_name\\}\\}/g, matchedRule.event_name || '');\n\nreturn [{ json: { ...input, hasMatch: true, matchedRule, dmMessage } }];"
+      },
+      "id": "11111111-0001-0001-0001-000000000008",
+      "name": "Match Keyword Rule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-match",
+              "leftValue": "={{ $json.hasMatch }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "11111111-0001-0001-0001-000000000009",
+      "name": "Keyword Matched?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1280, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if we already sent a DM to this user for this keyword (duplicate prevention)\n// Uses n8n's workflow static data — persists between executions\n\nconst input = $input.first().json;\nconst { userId, matchedRule, platform } = input;\n\nconst staticData = $getWorkflowStaticData('global');\nconst dmHistory = staticData.dmHistory || {};\n\n// Key: platform + userId + keyword — prevents spam per user per event\nconst cooldownKey = `${platform}_${userId}_${matchedRule.keyword}`;\nconst cooldownMs = (matchedRule.cooldown_hours || 720) * 60 * 60 * 1000;\nconst now = Date.now();\nconst lastSent = dmHistory[cooldownKey];\n\nconst inCooldown = !!(lastSent && (now - lastSent) < cooldownMs);\nconst hoursRemaining = inCooldown\n  ? Math.ceil((cooldownMs - (now - lastSent)) / 3600000)\n  : 0;\n\nreturn [{\n  json: {\n    ...input,\n    shouldSend: !inCooldown,\n    cooldownKey,\n    inCooldown,\n    hoursRemaining,\n    lastSent: lastSent ? new Date(lastSent).toISOString() : null\n  }\n}];"
+      },
+      "id": "11111111-0001-0001-0001-000000000010",
+      "name": "Check DM Cooldown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-send",
+              "leftValue": "={{ $json.shouldSend }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "11111111-0001-0001-0001-000000000011",
+      "name": "Should Send DM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1720, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $env.INSTAGRAM_USER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.INSTAGRAM_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ recipient: { id: $json.userId }, message: { text: $json.dmMessage }, messaging_type: 'RESPONSE' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "11111111-0001-0001-0001-000000000012",
+      "name": "Send Instagram DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1940, 160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-reply",
+              "leftValue": "={{ $('Check DM Cooldown').first().json.matchedRule.public_reply }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "11111111-0001-0001-0001-000000000013",
+      "name": "Has Public Reply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2160, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Check DM Cooldown').first().json.commentId }}/replies",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.INSTAGRAM_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ message: $('Check DM Cooldown').first().json.matchedRule.public_reply }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "11111111-0001-0001-0001-000000000014",
+      "name": "Post Public Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2380, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Update analytics and mark DM as sent in cooldown history\n// Uses n8n workflow static data (persists between executions)\n\n// Get the original comment data (always from Check DM Cooldown node)\nconst data = $('Check DM Cooldown').first().json;\nconst { cooldownKey, matchedRule, userId, commentId, commentText, platform } = data;\n\nconst staticData = $getWorkflowStaticData('global');\nconst now = Date.now();\n\n// 1. Mark DM as sent (enforces cooldown on next comment from same user)\nif (!staticData.dmHistory) staticData.dmHistory = {};\nstaticData.dmHistory[cooldownKey] = now;\n\n// 2. Increment send count for max_dm_sends enforcement\nif (!staticData.sendCounts) staticData.sendCounts = {};\nstaticData.sendCounts[matchedRule.id] = (staticData.sendCounts[matchedRule.id] || 0) + 1;\n\n// 3. Keyword-level analytics\nif (!staticData.analytics) staticData.analytics = {};\nconst analyticsKey = `${platform}_${matchedRule.keyword}`;\n\nif (!staticData.analytics[analyticsKey]) {\n  staticData.analytics[analyticsKey] = {\n    keyword: matchedRule.keyword,\n    platform,\n    eventName: matchedRule.event_name || '',\n    totalSent: 0,\n    firstSent: new Date(now).toISOString(),\n    lastSent: null,\n    recentSends: []\n  };\n}\n\nconst stats = staticData.analytics[analyticsKey];\nstats.totalSent += 1;\nstats.lastSent = new Date(now).toISOString();\n\n// Keep last 50 sends for audit trail\nstats.recentSends.unshift({\n  userId,\n  commentId,\n  commentPreview: (commentText || '').substring(0, 80),\n  sentAt: new Date(now).toISOString()\n});\nstats.recentSends = stats.recentSends.slice(0, 50);\n\nreturn [{\n  json: {\n    success: true,\n    platform,\n    ruleId: matchedRule.id,\n    keyword: matchedRule.keyword,\n    eventName: matchedRule.event_name,\n    userId,\n    commentId,\n    totalSentForKeyword: stats.totalSent,\n    sentAt: new Date(now).toISOString()\n  }\n}];"
+      },
+      "id": "11111111-0001-0001-0001-000000000015",
+      "name": "Update Analytics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 160]
+    },
+    {
+      "parameters": {},
+      "id": "11111111-0001-0001-0001-000000000016",
+      "name": "Skip - Invalid Event",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [840, 580]
+    },
+    {
+      "parameters": {},
+      "id": "11111111-0001-0001-0001-000000000017",
+      "name": "Skip - No Keyword Match",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1280, 480]
+    },
+    {
+      "parameters": {},
+      "id": "11111111-0001-0001-0001-000000000018",
+      "name": "Skip - In Cooldown",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1720, 400]
+    }
+  ],
+  "connections": {
+    "Meta Webhook Verify (GET)": {
+      "main": [
+        [{ "node": "Extract Challenge", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Challenge": {
+      "main": [
+        [{ "node": "Respond with Challenge", "type": "main", "index": 0 }]
+      ]
+    },
+    "Instagram Comment Events (POST)": {
+      "main": [
+        [{ "node": "Respond 200 OK", "type": "main", "index": 0 }]
+      ]
+    },
+    "Respond 200 OK": {
+      "main": [
+        [{ "node": "Parse Comment Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Comment Event": {
+      "main": [
+        [{ "node": "Valid Comment?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Valid Comment?": {
+      "main": [
+        [{ "node": "Match Keyword Rule", "type": "main", "index": 0 }],
+        [{ "node": "Skip - Invalid Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Match Keyword Rule": {
+      "main": [
+        [{ "node": "Keyword Matched?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Keyword Matched?": {
+      "main": [
+        [{ "node": "Check DM Cooldown", "type": "main", "index": 0 }],
+        [{ "node": "Skip - No Keyword Match", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check DM Cooldown": {
+      "main": [
+        [{ "node": "Should Send DM?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Should Send DM?": {
+      "main": [
+        [{ "node": "Send Instagram DM", "type": "main", "index": 0 }],
+        [{ "node": "Skip - In Cooldown", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Instagram DM": {
+      "main": [
+        [{ "node": "Has Public Reply?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Public Reply?": {
+      "main": [
+        [{ "node": "Post Public Reply", "type": "main", "index": 0 }],
+        [{ "node": "Update Analytics", "type": "main", "index": 0 }]
+      ]
+    },
+    "Post Public Reply": {
+      "main": [
+        [{ "node": "Update Analytics", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "id": "instagram-comment-to-dm",
+  "tags": [
+    { "id": "tag-comment-to-dm", "name": "comment-to-dm" },
+    { "id": "tag-instagram", "name": "instagram" }
+  ]
+}
