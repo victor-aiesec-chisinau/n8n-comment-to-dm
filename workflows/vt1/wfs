@@ -94,7 +94,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      mediaId: $json.mediaId,\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
+        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  const matchType = rule.match_type || rule.matchType || 'contains';\n  if (matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      mediaId: $json.mediaId,\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
       },
       "id": "c1a2b3d4-e5f6-7890-a1b2-c3d4e5f67890",
       "name": "Match Keywords",
@@ -187,7 +187,7 @@
           "cachedResultName": "Instagram DM",
           "cachedResultUrl": "https://www.notion.so/36ece3bbce1a8038b484e4c3521c5b9b"
         },
-        "limit": 1,
+        "limit": 100,
         "filterType": "manual",
         "matchType": "allFilters",
         "filters": {
@@ -370,7 +370,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      videoId: $json.videoId,\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
+        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  const matchType = rule.match_type || rule.matchType || 'contains';\n  if (matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      videoId: $json.videoId,\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
       },
       "id": "d2e3f4a5-b6c7-8901-b2c3-d4e5f6a78901",
       "name": "Match TikTok Keywords",
@@ -463,7 +463,7 @@
           "cachedResultName": "Tiktok DM",
           "cachedResultUrl": "https://www.notion.so/36ece3bbce1a809e9102ca1ab2e698d9"
         },
-        "limit": 1,
+        "limit": 100,
         "filterType": "manual",
         "matchType": "allFilters",
         "filters": {
@@ -504,7 +504,20 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ \"https://open.tiktokapis.com/v2/video/comment/reply/create/?access_token=\" + $env.TIKTOK_ACCESS_TOKEN }}",
+        "url": "https://open.tiktokapis.com/v2/video/comment/reply/create/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.TIKTOK_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=UTF-8"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { \"video_id\": $json.videoId, \"parent_comment_id\": $json.commentId, \"text\": $json.message + \"\\n\\n\" + $json.eventLink } }}",
