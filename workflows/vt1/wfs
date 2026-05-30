@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const matchData = $('Prepare Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst dmRecords = $input.all();\n\nif (dmRecords.length === 0) {\n  return [matchData];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...dmRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [matchData];\n}\n\nreturn [];"
+        "jsCode": "const matchData = $('Prepare Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst dmRecords = $input.all();\n\nif (dmRecords.length === 0) {\n  return [matchData];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...dmRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt || 0);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [matchData];\n}\n\nreturn [];"
       },
       "id": "a6afb9e2-5e5b-46e3-a9c8-9b51c8b0a397",
       "name": "Validate Cooldown Period",
@@ -94,7 +94,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      mediaId: $json.mediaId || '',\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
+        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      mediaId: $json.mediaId || '',\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
       },
       "id": "c1a2b3d4-e5f6-7890-a1b2-c3d4e5f67890",
       "name": "Match Keywords",
@@ -370,7 +370,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      videoId: $json.videoId || '',\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
+        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      videoId: $json.videoId || '',\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
       },
       "id": "d2e3f4a5-b6c7-8901-b2c3-d4e5f6a78901",
       "name": "Match TikTok Keywords",
@@ -493,7 +493,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const matchData = $('Prepare TikTok Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst replyRecords = $input.all();\n\nif (replyRecords.length === 0) {\n  return [matchData];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...replyRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [matchData];\n}\n\nreturn [];"
+        "jsCode": "const matchData = $('Prepare TikTok Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst replyRecords = $input.all();\n\nif (replyRecords.length === 0) {\n  return [matchData];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...replyRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt || 0);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [matchData];\n}\n\nreturn [];"
       },
       "id": "95a2ad00-bafd-42ff-b075-cb30fe3e5fda",
       "name": "Validate TikTok Cooldown Period",
@@ -507,7 +507,7 @@
         "url": "={{ \"https://open.tiktokapis.com/v2/video/comment/reply/create/?access_token=\" + $env.TIKTOK_ACCESS_TOKEN }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { \"video_id\": $json.videoId, \"comment_id\": $json.commentId, \"text\": $json.message + \"\\n\\n\" + $json.eventLink } }}",
+        "jsonBody": "={{ { \"video_id\": $json.videoId, \"parent_comment_id\": $json.commentId, \"text\": $json.message + \"\\n\\n\" + $json.eventLink } }}",
         "options": {}
       },
       "id": "21e10576-adce-45da-a5ab-3b6d12e690ce",
