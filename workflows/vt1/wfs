@@ -1,0 +1,802 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"received\" } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "77998082-74a0-4839-9abd-83f34b664c1f",
+      "name": "Respond 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [688, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const matchData = $('Prepare Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst dmRecords = $input.all();\n\nif (dmRecords.length === 0) {\n  return [matchData];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...dmRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt || 0);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [matchData];\n}\n\nreturn [];"
+      },
+      "id": "a6afb9e2-5e5b-46e3-a9c8-9b51c8b0a397",
+      "name": "Validate Cooldown Period",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1808, 400]
+    },
+    {
+      "parameters": {
+        "path": "instagram",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "af8c3c84-4976-4e71-9e7c-b78538c6356b",
+      "name": "Instagram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 304],
+      "webhookId": "d0179664-1a9f-49f2-babe-ad4afda92b77"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.headers[\"x-hub-signature-256\"] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d4fdc8c5-2153-47bd-a254-849bf4761bc4",
+      "name": "Check Request Method",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [464, 304]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query[\"hub.challenge\"] }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "41ec5ea9-0f73-4ec5-8383-15888f7d92f5",
+      "name": "Verify Meta Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [688, 208]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log(\"Full webhook payload:\", JSON.stringify($input.first().json, null, 2));\n\nconst body = $input.first().json.body;\n\nif (!body) {\n  console.error(\"ERROR: No body in webhook payload\");\n  return [];\n}\n\nif (!body.entry || !Array.isArray(body.entry) || body.entry.length === 0) {\n  console.error(\"ERROR: No entry array in body. Body structure:\", JSON.stringify(body, null, 2));\n  return [];\n}\n\nconst entry = body.entry[0];\nif (!entry.changes || !Array.isArray(entry.changes) || entry.changes.length === 0) {\n  console.error(\"ERROR: No changes array in entry. Entry structure:\", JSON.stringify(entry, null, 2));\n  return [];\n}\n\nconst change = entry.changes[0];\nconst value = change.value;\n\nif (!value) {\n  console.error(\"ERROR: No value in change. Change structure:\", JSON.stringify(change, null, 2));\n  return [];\n}\n\nconst commentText = value.text || value.message || \"\";\nif (!commentText) {\n  console.error(\"ERROR: No text/message field in value. Value structure:\", JSON.stringify(value, null, 2));\n  return [];\n}\n\nconst userId = value.from?.id || value.sender?.id || \"\";\nconst username = value.from?.username || value.sender?.username || \"unknown\";\n\nif (!userId) {\n  console.error(\"ERROR: Could not extract userId. Value structure:\", JSON.stringify(value, null, 2));\n  return [];\n}\n\nconst commentData = {\n  commentId: value.id,\n  commentText: commentText.toLowerCase().trim(),\n  userId: userId,\n  username: username,\n  mediaId: value.media?.id || value.post_id || \"\",\n  timestamp: new Date().toISOString(),\n  webhookType: change.field || \"unknown\"\n};\n\nconsole.log(\"Successfully parsed comment:\", JSON.stringify(commentData, null, 2));\nreturn [commentData];"
+      },
+      "id": "d82f8a28-a21a-483b-9f01-d5c7f648f75a",
+      "name": "Parse Instagram Comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [912, 400],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      mediaId: $json.mediaId,\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
+      },
+      "id": "c1a2b3d4-e5f6-7890-a1b2-c3d4e5f67890",
+      "name": "Match Keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1136, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "commentId",
+              "value": "={{ $json.commentId }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "commentText",
+              "value": "={{ $json.commentText }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "userId",
+              "value": "={{ $json.userId }}",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "username",
+              "value": "={{ $json.username }}",
+              "type": "string"
+            },
+            {
+              "id": "5",
+              "name": "mediaId",
+              "value": "={{ $json.mediaId }}",
+              "type": "string"
+            },
+            {
+              "id": "6",
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}",
+              "type": "string"
+            },
+            {
+              "id": "7",
+              "name": "keyword",
+              "value": "={{ $json.keyword }}",
+              "type": "string"
+            },
+            {
+              "id": "8",
+              "name": "eventLink",
+              "value": "={{ $json.eventLink }}",
+              "type": "string"
+            },
+            {
+              "id": "9",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "10",
+              "name": "cooldownDays",
+              "value": "={{ $json.cooldownDays }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b4a916e2-01b9-4960-b1fa-61627f917146",
+      "name": "Prepare Matched Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1360, 400]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "value": "36ece3bb-ce1a-8038-b484-e4c3521c5b9b",
+          "mode": "list",
+          "cachedResultName": "Instagram DM",
+          "cachedResultUrl": "https://www.notion.so/36ece3bbce1a8038b484e4c3521c5b9b"
+        },
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "key": "userId",
+              "type": "rich_text",
+              "condition": "equals",
+              "richTextValue": "={{ $json.userId }}"
+            },
+            {
+              "key": "eventLink",
+              "type": "url",
+              "condition": "equals",
+              "urlValue": "={{ $json.eventLink }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "190616f6-23e8-4f54-acb6-e951e18be420",
+      "name": "Check DM Cooldown",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [1584, 400],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ \"https://graph.instagram.com/v22.0/me/messages?access_token=\" + $env.INSTAGRAM_ACCESS_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"recipient\": { \"id\": $json.userId }, \"message\": { \"text\": $json.message + \"\\n\\n\" + $json.eventLink } } }}",
+        "options": {}
+      },
+      "id": "8b389e6d-8dca-4a80-aece-631bab55b705",
+      "name": "Send Instagram DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2032, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.recipient_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e3f4a5b6-c7d8-9012-c3d4-e5f6a7b89012",
+      "name": "Check DM Send Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2256, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ \"https://graph.facebook.com/v22.0/\" + $('Validate Cooldown Period').item.json.commentId + \"/replies?access_token=\" + $env.INSTAGRAM_ACCESS_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"message\": \"✅ Check your DMs!\" } }}",
+        "options": {}
+      },
+      "id": "fc8702da-1f91-418d-8c9e-f64dbab2cbce",
+      "name": "Post Public Comment Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2480, 400]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "36ece3bb-ce1a-8038-b484-e4c3521c5b9b",
+          "mode": "list",
+          "cachedResultName": "Instagram DM",
+          "cachedResultUrl": "https://www.notion.so/36ece3bbce1a8038b484e4c3521c5b9b"
+        },
+        "title": "={{ $(\"Validate Cooldown Period\").item.json.username + \" - \" + $(\"Validate Cooldown Period\").item.json.keyword }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "userId",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate Cooldown Period\").item.json.userId }}"
+            },
+            {
+              "key": "username",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate Cooldown Period\").item.json.username }}"
+            },
+            {
+              "key": "keyword",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate Cooldown Period\").item.json.keyword }}"
+            },
+            {
+              "key": "eventLink",
+              "type": "url",
+              "urlValue": "={{ $(\"Validate Cooldown Period\").item.json.eventLink }}"
+            },
+            {
+              "key": "lastSentAt",
+              "type": "date",
+              "date": "={{ $now.toISO() }}"
+            },
+            {
+              "key": "commentId",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate Cooldown Period\").item.json.commentId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5782332b-bab6-4fb6-985b-46c3e0b4351a",
+      "name": "Update DM Log",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [2704, 400],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tiktok",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "30b28d2e-a7d5-4a5e-9647-5015cd74b0be",
+      "name": "TikTok Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 832],
+      "webhookId": "89412795-4c4a-4d44-be58-45c4b001e8e7"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"received\" } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "df20d5ee-1552-4df8-8e8a-39cbb3e012cf",
+      "name": "TikTok Respond 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [464, 832]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\n\nif (!body || !body.data) {\n  console.error('TikTok: missing body or body.data:', JSON.stringify($input.first().json, null, 2));\n  return [];\n}\n\nconst data = body.data;\nconsole.log('TikTok raw comment data:', JSON.stringify(data, null, 2));\n\nconst commentText = data.comment_content || data.text;\nconst commentId = data.comment_id || data.id;\nconst userId = data.user_openid || data.user_id;\nconst username = data.user_nickname || data.username;\nconst videoId = data.video_id;\n\nconst missing = [];\nif (!commentText) missing.push('text / comment_content');\nif (!commentId) missing.push('comment_id / id');\nif (!userId) missing.push('user_id / user_openid');\nif (!videoId) missing.push('video_id');\n\nif (missing.length > 0) {\n  console.error('TikTok: missing fields:', missing.join(', '), '| full data:', JSON.stringify(data, null, 2));\n  return [];\n}\n\nconst commentData = {\n  commentId: commentId,\n  commentText: commentText.toLowerCase().trim(),\n  userId: userId,\n  username: username,\n  videoId: videoId,\n  timestamp: new Date().toISOString()\n};\n\nreturn [commentData];"
+      },
+      "id": "5710f522-4fb6-4e74-81d4-ace3a01f33c1",
+      "name": "Parse TikTok Comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [688, 832]
+    },
+    {
+      "parameters": {
+        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r => r.active === true);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  if (rule.matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    // 'contains' – case-insensitive, supports single and multi-word keywords\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      videoId: $json.videoId,\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
+      },
+      "id": "d2e3f4a5-b6c7-8901-b2c3-d4e5f6a78901",
+      "name": "Match TikTok Keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [912, 832]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "commentId",
+              "value": "={{ $json.commentId }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "commentText",
+              "value": "={{ $json.commentText }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "userId",
+              "value": "={{ $json.userId }}",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "username",
+              "value": "={{ $json.username }}",
+              "type": "string"
+            },
+            {
+              "id": "5",
+              "name": "videoId",
+              "value": "={{ $json.videoId }}",
+              "type": "string"
+            },
+            {
+              "id": "6",
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}",
+              "type": "string"
+            },
+            {
+              "id": "7",
+              "name": "keyword",
+              "value": "={{ $json.keyword }}",
+              "type": "string"
+            },
+            {
+              "id": "8",
+              "name": "eventLink",
+              "value": "={{ $json.eventLink }}",
+              "type": "string"
+            },
+            {
+              "id": "9",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "10",
+              "name": "cooldownDays",
+              "value": "={{ $json.cooldownDays }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "08307060-cca8-4bf6-9528-e827f579b2d7",
+      "name": "Prepare TikTok Matched Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1136, 832]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "value": "36ece3bb-ce1a-809e-9102-ca1ab2e698d9",
+          "mode": "list",
+          "cachedResultName": "Tiktok DM",
+          "cachedResultUrl": "https://www.notion.so/36ece3bbce1a809e9102ca1ab2e698d9"
+        },
+        "limit": 1,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "key": "userId",
+              "type": "rich_text",
+              "condition": "equals",
+              "richTextValue": "={{ $json.userId }}"
+            },
+            {
+              "key": "eventLink",
+              "type": "url",
+              "condition": "equals",
+              "urlValue": "={{ $json.eventLink }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f87a9fe2-f30c-491c-a255-3ad95e0c53dd",
+      "name": "Check TikTok Reply Cooldown",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [1360, 832],
+      "credentials": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "const matchData = $('Prepare TikTok Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst replyRecords = $input.all();\n\nif (replyRecords.length === 0) {\n  return [matchData];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...replyRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt || 0);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [matchData];\n}\n\nreturn [];"
+      },
+      "id": "95a2ad00-bafd-42ff-b075-cb30fe3e5fda",
+      "name": "Validate TikTok Cooldown Period",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1584, 832]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ \"https://open.tiktokapis.com/v2/video/comment/reply/create/?access_token=\" + $env.TIKTOK_ACCESS_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"video_id\": $json.videoId, \"parent_comment_id\": $json.commentId, \"text\": $json.message + \"\\n\\n\" + $json.eventLink } }}",
+        "options": {}
+      },
+      "id": "21e10576-adce-45da-a5ab-3b6d12e690ce",
+      "name": "Post TikTok Comment Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1808, 832]
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "36ece3bb-ce1a-809e-9102-ca1ab2e698d9",
+          "mode": "list",
+          "cachedResultName": "Tiktok DM",
+          "cachedResultUrl": "https://www.notion.so/36ece3bbce1a809e9102ca1ab2e698d9"
+        },
+        "title": "={{ $(\"Validate TikTok Cooldown Period\").item.json.username + \" - \" + $(\"Validate TikTok Cooldown Period\").item.json.keyword }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "userId",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate TikTok Cooldown Period\").item.json.userId }}"
+            },
+            {
+              "key": "username",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate TikTok Cooldown Period\").item.json.username }}"
+            },
+            {
+              "key": "keyword",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate TikTok Cooldown Period\").item.json.keyword }}"
+            },
+            {
+              "key": "eventLink",
+              "type": "url",
+              "urlValue": "={{ $(\"Validate TikTok Cooldown Period\").item.json.eventLink }}"
+            },
+            {
+              "key": "lastSentAt",
+              "type": "date",
+              "date": "={{ $now.toISO() }}"
+            },
+            {
+              "key": "commentId",
+              "type": "rich_text",
+              "textContent": "={{ $(\"Validate TikTok Cooldown Period\").item.json.commentId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4d5c0a7f-17d3-46dc-a31f-9d5dd0db7cd7",
+      "name": "Update TikTok Reply Log",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [2032, 832],
+      "credentials": {}
+    }
+  ],
+  "connections": {
+    "Instagram Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Request Method",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Request Method": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verify Meta Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Meta Challenge": {
+      "main": [
+        []
+      ]
+    },
+    "Respond 200 OK": {
+      "main": [
+        [
+          {
+            "node": "Parse Instagram Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Instagram Comment": {
+      "main": [
+        [
+          {
+            "node": "Match Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Keywords": {
+      "main": [
+        [
+          {
+            "node": "Prepare Matched Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Matched Data": {
+      "main": [
+        [
+          {
+            "node": "Check DM Cooldown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check DM Cooldown": {
+      "main": [
+        [
+          {
+            "node": "Validate Cooldown Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Cooldown Period": {
+      "main": [
+        [
+          {
+            "node": "Send Instagram DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Instagram DM": {
+      "main": [
+        [
+          {
+            "node": "Check DM Send Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check DM Send Success": {
+      "main": [
+        [
+          {
+            "node": "Post Public Comment Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Post Public Comment Reply": {
+      "main": [
+        [
+          {
+            "node": "Update DM Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok Webhook": {
+      "main": [
+        [
+          {
+            "node": "TikTok Respond 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok Respond 200 OK": {
+      "main": [
+        [
+          {
+            "node": "Parse TikTok Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse TikTok Comment": {
+      "main": [
+        [
+          {
+            "node": "Match TikTok Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match TikTok Keywords": {
+      "main": [
+        [
+          {
+            "node": "Prepare TikTok Matched Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare TikTok Matched Data": {
+      "main": [
+        [
+          {
+            "node": "Check TikTok Reply Cooldown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check TikTok Reply Cooldown": {
+      "main": [
+        [
+          {
+            "node": "Validate TikTok Cooldown Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate TikTok Cooldown Period": {
+      "main": [
+        [
+          {
+            "node": "Post TikTok Comment Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post TikTok Comment Reply": {
+      "main": [
+        [
+          {
+            "node": "Update TikTok Reply Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "6953b6fbc094ea464992b8b8e599e313b983b8b7d17068974fc2a7fe691417d2"
+  }
+}
