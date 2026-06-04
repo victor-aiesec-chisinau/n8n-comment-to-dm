@@ -45,8 +45,38 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.query[\"hub.verify_token\"] === $env.META_VERIFY_TOKEN }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a2b3c4d5-e6f7-8901-b2c3-d4e5f6a70002",
+      "name": "Token Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [688, 208]
+    },
+    {
+      "parameters": {
         "respondWith": "text",
-        "responseBody": "={{ $json.query[\"hub.verify_token\"] === $env.META_VERIFY_TOKEN ? $json.query[\"hub.challenge\"] : \"\" }}",
+        "responseBody": "={{ $json.query[\"hub.challenge\"] }}",
         "options": {
           "responseCode": 200
         }
@@ -55,7 +85,21 @@
       "name": "Verify Meta Challenge",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [688, 208]
+      "position": [912, 112]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Forbidden",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "b3c4d5e6-f7a8-9012-c3d4-e5f6a7b80003",
+      "name": "Reject Verification",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [912, 304]
     },
     {
       "parameters": {
@@ -73,7 +117,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Validate Meta webhook signature (X-Hub-Signature-256)\n// Set META_APP_SECRET env var to enable; omit to skip in dev/staging.\n// n8n parses the body before we can see it — re-serializing for HMAC\n// works for standard Meta payloads since V8 preserves key insertion order.\n\nconst { headers, body } = $input.first().json;\nconst appSecret = process.env.META_APP_SECRET || '';\n\nif (!appSecret) {\n  return [{ json: $input.first().json }];\n}\n\nconst sig = (headers && headers['x-hub-signature-256']) || '';\nif (!sig) {\n  return [];\n}\n\nconst crypto = require('crypto');\nconst expected = 'sha256=' + crypto.createHmac('sha256', appSecret)\n  .update(JSON.stringify(body))\n  .digest('hex');\n\nif (sig !== expected) {\n  return [];\n}\n\nreturn [{ json: $input.first().json }];"
+        "jsCode": "// Validate Meta webhook signature (X-Hub-Signature-256)\n// Set META_APP_SECRET env var to enable; omit to skip in dev/staging.\n// n8n parses the body before we can see it — re-serializing for HMAC\n// works for standard Meta payloads since V8 preserves key insertion order.\n\nconst { headers, body } = $input.first().json;\nconst appSecret = process.env.META_APP_SECRET || '';\n\nif (!appSecret) {\n  return [{ json: $input.first().json }];\n}\n\nconst sig = (headers && headers['x-hub-signature-256']) || '';\nif (!sig) {\n  return [];\n}\n\nconst crypto = require('crypto');\nconst expected = 'sha256=' + crypto.createHmac('sha256', appSecret)\n  .update(JSON.stringify(body))\n  .digest('hex');\n\nconst sigBuf = Buffer.from(sig);\nconst expectedBuf = Buffer.from(expected);\nif (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {\n  return [];\n}\n\nreturn [{ json: $input.first().json }];"
       },
       "id": "a1b2c3d4-e5f6-7890-a1b2-c3d4e5f60001",
       "name": "Validate Signature",
@@ -83,7 +127,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body;\n\nif (!body || !body.entry || !Array.isArray(body.entry) || body.entry.length === 0) {\n  return [];\n}\n\nconst results = [];\n\nfor (const entry of body.entry) {\n  for (const change of (entry.changes || [])) {\n    const value = change.value;\n    if (!value) continue;\n\n    const commentText = value.text || value.message || '';\n    if (!commentText) continue;\n\n    const userId = value.from?.id || value.sender?.id || '';\n    if (!userId) continue;\n\n    // Skip edits and deletions — only process new comments\n    if (value.verb && value.verb !== 'add') continue;\n\n    // Skip replies-to-replies — only top-level comments trigger a DM\n    if (value.parent_id) continue;\n\n    results.push({\n      commentId: value.id,\n      commentText: commentText.toLowerCase().trim(),\n      userId,\n      username: value.from?.username || value.sender?.username || 'unknown',\n      mediaId: value.media?.id || value.post_id || '',\n      timestamp: new Date().toISOString(),\n      webhookType: change.field || 'unknown'\n    });\n  }\n}\n\nreturn results;"
+        "jsCode": "const body = $input.first().json.body;\n\nif (!body || !body.entry || !Array.isArray(body.entry) || body.entry.length === 0) {\n  return [];\n}\n\nconst results = [];\n\nfor (const entry of body.entry) {\n  for (const change of (entry.changes || [])) {\n    const value = change.value;\n    if (!value) continue;\n\n    const commentText = value.text || value.message || '';\n    if (!commentText) continue;\n\n    const userId = value.from?.id || value.sender?.id || '';\n    if (!userId) continue;\n\n    // Skip edits and deletions — only process new comments\n    if (value.verb && value.verb !== 'add') continue;\n\n    // Skip replies-to-replies — only top-level comments trigger a DM\n    if (value.parent_id) continue;\n\n    results.push({\n      json: {\n        commentId: value.id,\n        commentText: commentText.toLowerCase().trim(),\n        userId,\n        username: value.from?.username || value.sender?.username || 'unknown',\n        mediaId: value.media?.id || value.post_id || '',\n        timestamp: new Date().toISOString(),\n        webhookType: change.field || 'unknown'\n      }\n    });\n  }\n}\n\nreturn results;"
       },
       "id": "d82f8a28-a21a-483b-9f01-d5c7f648f75a",
       "name": "Parse Instagram Comment",
@@ -93,7 +137,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r =>\n  r.active === true && (!r.platform || r.platform === 'instagram')\n);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  const matchType = rule.match_type || rule.matchType || 'contains';\n  if (matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      commentId: $json.commentId,\n      commentText: $json.commentText,\n      userId: $json.userId,\n      username: $json.username,\n      mediaId: $json.mediaId,\n      timestamp: $json.timestamp,\n      keyword: rule.keyword,\n      eventLink: rule.eventLink,\n      message: rule.message,\n      cooldownDays: rule.cooldownDays || 30\n    }];\n  }\n}\n\nreturn [];"
+        "jsCode": "const commentText = $json.commentText;\n\nlet rules = [];\ntry {\n  rules = JSON.parse($env.KEYWORD_RULES);\n} catch (e) {\n  console.error('Failed to parse KEYWORD_RULES:', e.message);\n  return [];\n}\n\nconst activeRules = rules.filter(r =>\n  r.active === true && (!r.platform || r.platform === 'instagram')\n);\n\nfor (const rule of activeRules) {\n  if (!rule.keyword || typeof rule.keyword !== 'string') {\n    continue;\n  }\n  const keyword = rule.keyword.toLowerCase().trim();\n  const text = commentText.toLowerCase().trim();\n\n  let matched = false;\n  const matchType = rule.match_type || rule.matchType || 'contains';\n  if (matchType === 'exact') {\n    matched = text === keyword;\n  } else {\n    matched = text.includes(keyword);\n  }\n\n  if (matched) {\n    return [{\n      json: {\n        commentId: $json.commentId,\n        commentText: $json.commentText,\n        userId: $json.userId,\n        username: $json.username,\n        mediaId: $json.mediaId,\n        timestamp: $json.timestamp,\n        keyword: rule.keyword,\n        eventLink: rule.eventLink,\n        message: rule.message,\n        cooldownDays: rule.cooldownDays || 30\n      }\n    }];\n  }\n}\n\nreturn [];"
       },
       "id": "c1a2b3d4-e5f6-7890-a1b2-c3d4e5f67890",
       "name": "Match Keywords",
@@ -216,7 +260,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const matchData = $('Prepare Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst dmRecords = $input.all();\n\nif (dmRecords.length === 0) {\n  return [matchData];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...dmRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt || 0);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [matchData];\n}\n\nreturn [];"
+        "jsCode": "const matchData = $('Prepare Matched Data').first().json;\nconst cooldownDays = matchData.cooldownDays || 30;\n\nconst dmRecords = $input.all();\n\nif (dmRecords.length === 0) {\n  return [{ json: matchData }];\n}\n\n// Sort by lastSentAt descending to always use the most recent record\nconst sorted = [...dmRecords].sort((a, b) =>\n  new Date(b.json.lastSentAt || 0) - new Date(a.json.lastSentAt || 0)\n);\n\nconst lastSent = new Date(sorted[0].json.lastSentAt || 0);\nconst now = new Date();\nconst daysSinceLastSent = (now - lastSent) / (1000 * 60 * 60 * 24);\n\nif (daysSinceLastSent >= cooldownDays) {\n  return [{ json: matchData }];\n}\n\nreturn [];"
       },
       "id": "a6afb9e2-5e5b-46e3-a9c8-9b51c8b0a397",
       "name": "Validate Cooldown Period",
@@ -343,147 +387,76 @@
   "connections": {
     "Instagram Webhook": {
       "main": [
-        [
-          {
-            "node": "Check Request Method",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Check Request Method", "type": "main", "index": 0 }]
       ]
     },
     "Check Request Method": {
       "main": [
-        [
-          {
-            "node": "Verify Meta Challenge",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Respond 200 OK",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Token Valid?", "type": "main", "index": 0 }],
+        [{ "node": "Respond 200 OK", "type": "main", "index": 0 }]
+      ]
+    },
+    "Token Valid?": {
+      "main": [
+        [{ "node": "Verify Meta Challenge", "type": "main", "index": 0 }],
+        [{ "node": "Reject Verification", "type": "main", "index": 0 }]
       ]
     },
     "Verify Meta Challenge": {
-      "main": [
-        []
-      ]
+      "main": [[]]
+    },
+    "Reject Verification": {
+      "main": [[]]
     },
     "Respond 200 OK": {
       "main": [
-        [
-          {
-            "node": "Validate Signature",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Validate Signature", "type": "main", "index": 0 }]
       ]
     },
     "Validate Signature": {
       "main": [
-        [
-          {
-            "node": "Parse Instagram Comment",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Parse Instagram Comment", "type": "main", "index": 0 }]
       ]
     },
     "Parse Instagram Comment": {
       "main": [
-        [
-          {
-            "node": "Match Keywords",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Match Keywords", "type": "main", "index": 0 }]
       ]
     },
     "Match Keywords": {
       "main": [
-        [
-          {
-            "node": "Prepare Matched Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Prepare Matched Data", "type": "main", "index": 0 }]
       ]
     },
     "Prepare Matched Data": {
       "main": [
-        [
-          {
-            "node": "Check DM Cooldown",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Check DM Cooldown", "type": "main", "index": 0 }]
       ]
     },
     "Check DM Cooldown": {
       "main": [
-        [
-          {
-            "node": "Validate Cooldown Period",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Validate Cooldown Period", "type": "main", "index": 0 }]
       ]
     },
     "Validate Cooldown Period": {
       "main": [
-        [
-          {
-            "node": "Send Instagram DM",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Send Instagram DM", "type": "main", "index": 0 }]
       ]
     },
     "Send Instagram DM": {
       "main": [
-        [
-          {
-            "node": "Check DM Send Success",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Check DM Send Success", "type": "main", "index": 0 }]
       ]
     },
     "Check DM Send Success": {
       "main": [
-        [
-          {
-            "node": "Post Public Comment Reply",
-            "type": "main",
-            "index": 0
-          }
-        ],
+        [{ "node": "Post Public Comment Reply", "type": "main", "index": 0 }],
         []
       ]
     },
     "Post Public Comment Reply": {
       "main": [
-        [
-          {
-            "node": "Update DM Log",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Update DM Log", "type": "main", "index": 0 }]
       ]
     }
   },
