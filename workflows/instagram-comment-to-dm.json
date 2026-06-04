@@ -69,13 +69,23 @@
     },
     {
       "parameters": {
+        "jsCode": "// Validate Meta webhook signature (X-Hub-Signature-256)\n// Set META_APP_SECRET env var to enable; omit to skip validation in dev/staging.\n// n8n parses the body before we can see it — re-serializing for HMAC\n// works for standard Meta payloads since V8 preserves key insertion order.\n\nconst { headers, body } = $input.first().json;\nconst appSecret = process.env.META_APP_SECRET || '';\n\nif (!appSecret) {\n  return [{ json: $input.first().json }];\n}\n\nconst sig = (headers && headers['x-hub-signature-256']) || '';\nif (!sig) {\n  return [];\n}\n\nconst crypto = require('crypto');\nconst expected = 'sha256=' + crypto.createHmac('sha256', appSecret)\n  .update(JSON.stringify(body))\n  .digest('hex');\n\nif (sig !== expected) {\n  return [];\n}\n\nreturn [{ json: $input.first().json }];"
+      },
+      "id": "11111111-0001-0001-0001-000000000019",
+      "name": "Validate Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 400]
+    },
+    {
+      "parameters": {
         "jsCode": "// Parse Meta webhook payload for Instagram comment events\n// Handles multiple changes per entry (batch delivery)\n\nconst body = $input.first().json.body || {};\n\nif (!body.entry || !body.entry.length) {\n  return [{ json: { valid: false, reason: 'no_entry' } }];\n}\n\nconst results = [];\n\nfor (const entry of body.entry) {\n  for (const change of (entry.changes || [])) {\n\n    // We only care about 'comments' field\n    if (change.field !== 'comments') continue;\n\n    const val = change.value || {};\n\n    // Skip deletions / edits — only process new comments\n    if (val.verb && val.verb !== 'add') continue;\n\n    // Skip replies to other comments (only process top-level comments)\n    // Remove this check if you also want to trigger on replies\n    if (val.parent_id) continue;\n\n    results.push({\n      json: {\n        valid: true,\n        platform: 'instagram',\n        commentId: val.id || val.comment_id,\n        commentText: (val.text || val.message || '').trim(),\n        userId: (val.from && val.from.id) ? val.from.id : null,\n        userName: (val.from && val.from.name) ? val.from.name : 'Unknown',\n        postId: (val.media && val.media.id) ? val.media.id : (val.post_id || null),\n        timestamp: val.created_time || Math.floor(Date.now() / 1000)\n      }\n    });\n  }\n}\n\nif (results.length === 0) {\n  return [{ json: { valid: false, reason: 'no_comment_events' } }];\n}\n\nreturn results;"
       },
       "id": "11111111-0001-0001-0001-000000000006",
       "name": "Parse Comment Event",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [620, 400]
+      "position": [840, 400]
     },
     {
       "parameters": {
@@ -113,7 +123,7 @@
       "name": "Valid Comment?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [840, 400]
+      "position": [1060, 400]
     },
     {
       "parameters": {
@@ -123,7 +133,7 @@
       "name": "Match Keyword Rule",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1060, 320]
+      "position": [1280, 320]
     },
     {
       "parameters": {
@@ -152,7 +162,7 @@
       "name": "Keyword Matched?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1280, 320]
+      "position": [1500, 320]
     },
     {
       "parameters": {
@@ -162,7 +172,7 @@
       "name": "Check DM Cooldown",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1500, 240]
+      "position": [1720, 240]
     },
     {
       "parameters": {
@@ -191,7 +201,7 @@
       "name": "Should Send DM?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1720, 240]
+      "position": [1940, 240]
     },
     {
       "parameters": {
@@ -222,7 +232,7 @@
       "name": "Send Instagram DM",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1940, 160]
+      "position": [2160, 160]
     },
     {
       "parameters": {
@@ -251,7 +261,7 @@
       "name": "Has Public Reply?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [2160, 160]
+      "position": [2380, 160]
     },
     {
       "parameters": {
@@ -282,7 +292,7 @@
       "name": "Post Public Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [2380, 80]
+      "position": [2600, 80]
     },
     {
       "parameters": {
@@ -292,7 +302,7 @@
       "name": "Update Analytics",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2600, 160]
+      "position": [2820, 160]
     },
     {
       "parameters": {},
@@ -300,7 +310,7 @@
       "name": "Skip - Invalid Event",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [840, 580]
+      "position": [1060, 580]
     },
     {
       "parameters": {},
@@ -308,7 +318,7 @@
       "name": "Skip - No Keyword Match",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1280, 480]
+      "position": [1500, 480]
     },
     {
       "parameters": {},
@@ -316,7 +326,7 @@
       "name": "Skip - In Cooldown",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1720, 400]
+      "position": [1940, 400]
     }
   ],
   "connections": {
@@ -336,6 +346,11 @@
       ]
     },
     "Respond 200 OK": {
+      "main": [
+        [{ "node": "Validate Signature", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validate Signature": {
       "main": [
         [{ "node": "Parse Comment Event", "type": "main", "index": 0 }]
       ]
